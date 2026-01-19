@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bikezelo ~ TechMart Pipeline Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #1a1a2e;
+      padding: 12px 20px;
+      border-bottom: 2px solid #00ff88;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 1.2em;
+      color: #00ff88;
+      letter-spacing: 2px;
+    }
+
+    #clock {
+      font-size: 0.9em;
+      color: #ffffff;
+    }
+
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 0;
+    }
+
+    /* LEFT - ticker */
+    .ticker-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #333;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #111;
+      padding: 8px 16px;
+      font-size: 0.75em;
+      color: #ffffff;
+      border-bottom: 1px solid #333;
+      display: flex;
+      gap: 20px;
+    }
+
+    .ticker-table {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78em;
+    }
+
+    thead th {
+      background: #111;
+      color: #ffffff;
+      padding: 6px 12px;
+      text-align: left;
+      position: sticky;
+      top: 0;
+      border-bottom: 1px solid #333;
+      font-weight: normal;
+      text-transform: uppercase;
+      font-size: 0.9em;
+      letter-spacing: 1px;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #1a1a1a;
+      transition: background 0.3s;
+    }
+
+    tbody tr.white { background: #ffffff; color: #000000; }
+    tbody tr.green { background: #0a2a0a; color: #00ff88; }
+    tbody tr.amber { background: #2a1a00; color: #ffaa00; }
+    tbody tr.red   { background: #2a0a0a; color: #ff4444; }
+
+    tbody td {
+      padding: 5px 12px;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    tr.white .status-dot { background: #555; }
+    tr.green .status-dot { background: #00ff88; }
+    tr.amber .status-dot { background: #ffaa00; }
+    tr.red   .status-dot { background: #ff4444; }
+
+    /* RIGHT - stats */
+    .stats-panel {
+      width: 260px;
+      display: flex;
+      flex-direction: column;
+      background: #111;
+    }
+
+    .stats-section {
+      padding: 16px;
+      border-bottom: 1px solid #333;
+    }
+
+    .stats-section h2 {
+      font-size: 0.7em;
+      color: #ffffff;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 12px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 0.85em;
+    }
+
+    .stat-label { color: #ffffff; }
+
+    .stat-value {
+      font-size: 1.4em;
+      font-weight: bold;
+    }
+
+    .stat-value.total   { color: #e0e0e0; }
+    .stat-value.passed  { color: #00ff88; }
+    .stat-value.warning { color: #ffaa00; }
+    .stat-value.error   { color: #ff4444; }
+
+    .forecast-value {
+      font-size: 1.1em;
+      color: #00aaff;
+      font-weight: bold;
+    }
+
+    .validation-status {
+      font-size: 0.7em;
+      color: #ffffff;
+      margin-top: 8px;
+    }
+
+    .pulse {
+      animation: pulse 1s ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%   { opacity: 0.3; }
+      50%  { opacity: 1; }
+      100% { opacity: 1; }
+    }
+
+    #incident-banner {
+      display: none;
+      background: #ff4444;
+      color: #fff;
+      padding: 8px 20px;
+      font-size: 0.85em;
+      text-align: center;
+      letter-spacing: 1px;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    footer {
+      background: #111;
+      border-top: 1px solid #333;
+      padding: 6px 16px;
+      font-size: 0.65em;
+      color: #ffffff;
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ BIKEZELO ~ TechMart Pipeline Monitor</h1>
+  <span id="clock">--:--:--</span>
+</header>
+
+<div id="incident-banner">
+  !! INCIDENT DETECTED — error rate above <span id="incident-threshold"></span> · started <span id="incident-time"></span>
+</div>
+
+<div class="main">
+
+  <!-- LEFT: ticker -->
+  <div class="ticker-panel">
+    <div class="panel-header">
+      <span>LIVE FEED</span>
+      <span id="ticker-count">0 rows displayed</span>
+      <span id="last-row-label">last row: -</span>
+    </div>
+    <div class="ticker-table">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Timestamp</th>
+            <th>Customer</th>
+            <th style="text-align:right">Amount</th>
+            <th>Status</th>
+            <th>Validation</th>
+          </tr>
+        </thead>
+        <tbody id="ticker-body">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RIGHT: stats -->
+  <div class="stats-panel">
+
+    <div class="stats-section">
+      <h2>Descriptive Analytics</h2>
+      <div class="stat-row">
+        <span class="stat-label">Total rows</span>
+        <span class="stat-value total" id="stat-total">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Passed</span>
+        <span class="stat-value passed" id="stat-passed">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Warnings</span>
+        <span class="stat-value warning" id="stat-warnings">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Errors</span>
+        <span class="stat-value error" id="stat-errors">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Error rate</span>
+        <span style="display:flex; align-items:center; gap:6px">
+          <span class="stat-value error" id="stat-error-rate">-</span>
+          <span id="trend-arrow" style="font-size:1.8em; color:#e0e0e0">→</span>
+        </span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label" id="sla-label">SLA</span>
+        <span class="stat-value" id="sla-status">-</span>
+      </div>
+      <div class="validation-status" id="validation-status">Waiting for first validation...</div>
+    </div>
+
+    <div class="stats-section">
+      <h2>Predictive Analytics</h2>
+      <div class="stat-row">
+        <span class="stat-label">Incoming rate</span>
+        <span class="forecast-value" id="forecast-rate">- / min</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Projected</span>
+        <span class="forecast-value" id="forecast-hour">- / hr</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Warnings / hr</span>
+        <span class="forecast-value" id="forecast-warnings">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Errors / hr</span>
+        <span class="forecast-value" id="forecast-errors">-</span>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <h2>Rules Active</h2>
+      <div class="stat-row">
+        <span class="stat-label" id="rules-status">No rules loaded</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <span>bikezelo ~ predict ~ DE5 Module 6</span>
+  <span id="footer-status">connecting...</span>
+</footer>
+
+<script>
+  // --- State ----------------------------------------------------------------
+  let lastRowId = 0;
+  let validationResults = {};  // row_id -> "pass", "warn", "fail"
+  const MAX_TICKER_ROWS = 50;
+
+  // --- Monitoring thresholds (adjust to match your pipeline) ---------------
+  const SLA_TARGET = {{ sla_target }};  // % - error rate above this is an SLA breach; set in app.py
+  document.getElementById('sla-label').textContent = `SLA (<${SLA_TARGET}%)`;
+  const INCIDENT_THRESHOLD = 15; // % — error rate above this triggers an incident alert
+  document.getElementById('incident-threshold').textContent = `${INCIDENT_THRESHOLD}%`;
+
+  let prevErrorRate = null;
+  let incidentStartTime = null;
+
+  // --- Clock ----------------------------------------------------------------
+  function updateClock() {
+    document.getElementById('clock').textContent =
+      new Date().toLocaleTimeString();
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // --- Row colour -----------------------------------------------------------
+  function rowClass(rowId) {
+    const state = validationResults[rowId];
+    if (state === "fail") return "red";
+    if (state === "warn") return "amber";
+    if (state === "pass") return "green";
+    return "white";
+  }
+
+  function validationLabel(rowId) {
+    const state = validationResults[rowId];
+    if (state === "fail") return "FAIL";
+    if (state === "warn") return "WARN";
+    if (state === "pass") return "PASS";
+    return "pending";
+  }
+
+  // --- Fetch new rows (fast - every 3 seconds) ------------------------------
+  function fetchNewRows() {
+    fetch(`/data/rows?after=${lastRowId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.rows && data.rows.length > 0) {
+          appendRows(data.rows);
+        }
+        if (data.max_row_id > lastRowId) {
+          lastRowId = data.max_row_id;
+          document.getElementById('last-row-label').textContent =
+            `last row: ${lastRowId}`;
+        }
+        document.getElementById('footer-status').textContent =
+          `feed OK · ${new Date().toLocaleTimeString()}`;
+      })
+      .catch(() => {
+        document.getElementById('footer-status').textContent = 'feed error';
+      });
+  }
+
+  // --- Append rows to ticker ------------------------------------------------
+  function appendRows(rows) {
+    const tbody = document.getElementById('ticker-body');
+
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.id = `row-${row.row_id}`;
+      tr.className = rowClass(row.row_id) + ' pulse';
+
+      tr.innerHTML = `
+        <td>${row.row_id}</td>
+        <td>${row.timestamp}</td>
+        <td>${row.customer_id || '<em>null</em>'}</td>
+        <td style="text-align:right">${parseFloat(row.order_amount).toFixed(2)}</td>
+        <td>${row.status}</td>
+        <td><span class="status-dot"></span>${validationLabel(row.row_id)}</td>
+      `;
+      tbody.insertBefore(tr, tbody.firstChild);
+    });
+
+    while (tbody.rows.length > MAX_TICKER_ROWS) {
+      tbody.deleteRow(tbody.rows.length - 1);
+    }
+
+    document.getElementById('ticker-count').textContent =
+      `${tbody.rows.length} rows displayed`;
+  }
+
+  // --- Run validation (slow - every 10 seconds) ----------------------------
+  function runValidation() {
+    fetch('/data/validate')
+      .then(r => r.json())
+      .then(data => {
+        validationResults = {};
+        for (const [rowId, state] of Object.entries(data.results)) {
+          validationResults[parseInt(rowId)] = state;
+        }
+
+        // Re-colour all visible ticker rows
+        const tbody = document.getElementById('ticker-body');
+        Array.from(tbody.rows).forEach(tr => {
+          const rowId = parseInt(tr.id.replace('row-', ''));
+          if (validationResults.hasOwnProperty(rowId)) {
+            tr.className = rowClass(rowId);
+            const label = tr.querySelector('td:last-child');
+            if (label) {
+              label.innerHTML =
+                `<span class="status-dot"></span>${validationLabel(rowId)}`;
+            }
+          }
+        });
+
+        // Update stats
+        const s = data.stats;
+        document.getElementById('stat-total').textContent    = s.total;
+        document.getElementById('stat-passed').textContent   = s.passed;
+        document.getElementById('stat-warnings').textContent = s.warnings;
+        document.getElementById('stat-errors').textContent   = s.errors;
+        document.getElementById('stat-error-rate').textContent = `${s.error_rate}%`;
+
+        // Trend arrow — compare current error rate to previous validation
+        const trendEl = document.getElementById('trend-arrow');
+        if (prevErrorRate !== null) {
+          if (s.error_rate > prevErrorRate + 1) {
+            trendEl.textContent = '↑'; trendEl.style.color = '#ff4444';
+          } else if (s.error_rate < prevErrorRate - 1) {
+            trendEl.textContent = '↓'; trendEl.style.color = '#00ff88';
+          } else {
+            trendEl.textContent = '→'; trendEl.style.color = '#e0e0e0';
+          }
+        }
+        prevErrorRate = s.error_rate;
+
+        // SLA indicator
+        const slaEl = document.getElementById('sla-status');
+        if (s.total === 0) {
+          slaEl.textContent = '-';
+          slaEl.style.color = '#e0e0e0';
+        } else if (s.error_rate <= SLA_TARGET) {
+          slaEl.textContent = 'OK';
+          slaEl.style.color = '#00ff88';
+        } else {
+          slaEl.textContent = 'BREACH';
+          slaEl.style.color = '#ff4444';
+        }
+
+        // Incident banner
+        const banner = document.getElementById('incident-banner');
+        if (s.error_rate >= INCIDENT_THRESHOLD) {
+          if (!incidentStartTime) {
+            incidentStartTime = new Date().toLocaleTimeString();
+            document.getElementById('incident-time').textContent = incidentStartTime;
+          }
+          banner.style.display = 'block';
+        } else {
+          incidentStartTime = null;
+          banner.style.display = 'none';
+        }
+
+        // Update forecast
+        const f = data.forecast;
+        document.getElementById('forecast-rate').textContent =
+          `${f.rows_per_min} / min`;
+        document.getElementById('forecast-hour').textContent =
+          `${f.forecast_per_hour} / hr`;
+
+        const errorRate = s.total > 0
+          ? (s.errors / s.total) * f.forecast_per_hour
+          : 0;
+        document.getElementById('forecast-errors').textContent =
+          `~${Math.round(errorRate)} / hr`;
+
+        const warningRate = s.total > 0
+          ? (s.warnings / s.total) * f.forecast_per_hour
+          : 0;
+        document.getElementById('forecast-warnings').textContent =
+          `~${Math.round(warningRate)} / hr`;
+
+        const validationStatusEl = document.getElementById('validation-status');
+        if (data.rules_error) {
+          validationStatusEl.textContent = `Rules error: ${data.rules_error}`;
+          validationStatusEl.style.color = '#ff4444';
+        } else {
+          validationStatusEl.textContent = `Last validated: ${new Date().toLocaleTimeString()}`;
+          validationStatusEl.style.color = '';
+        }
+
+        document.getElementById('rules-status').innerHTML =
+          s.errors === 0 && s.warnings === 0
+            ? 'No rules active'
+            : `Catching:<br><br>* ${s.errors} error(s)<br>* ${s.warnings} warning(s)`;
+      })
+      .catch(() => {
+        document.getElementById('validation-status').textContent =
+          'Validation error - check rules.py';
+      });
+  }
+
+  // --- Start polling --------------------------------------------------------
+  document.addEventListener('DOMContentLoaded', function () {
+    fetchNewRows();
+    runValidation();
+    setInterval(fetchNewRows, 3000);
+    setInterval(runValidation, 10000);
+  });
+</script>
+
+</body>
+</html>

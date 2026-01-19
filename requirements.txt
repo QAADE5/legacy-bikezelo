@@ -1,0 +1,4 @@
+flask
+great_expectations
+pandas
+pytest

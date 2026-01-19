@@ -1,0 +1,259 @@
+"""
+Flask dashboard for the bikezelo pipeline monitor.
+
+Serves two JSON endpoints polled by the browser:
+  /data/rows     - returns new rows since last poll (every 3 s); rows arrive unvalidated (white)
+  /data/validate - runs Great Expectations against the full DB (every 10 s); returns row colours + stats
+
+rules.py is reloaded each validation cycle, so rule changes apply without a restart.
+"""
+from flask import Flask, render_template, jsonify, request
+import pandas as pd
+import great_expectations as gx
+import sqlite3
+import os
+import importlib
+import logging
+import math
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("bikezelo")
+
+app = Flask(__name__)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "orders.db")
+
+TICKER_ROWS = 50
+SLA_ERROR_RATE_THRESHOLD = 12.0  # percent; passed to the dashboard template
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def read_db():
+    try:
+        conn = get_db()
+        df = pd.read_sql_query("SELECT * FROM orders ORDER BY row_id ASC", conn)
+        conn.close()
+        return df
+    except Exception as e:
+        logger.error("DB read error: %s", e)
+        return pd.DataFrame(columns=["row_id", "timestamp", "customer_id", "order_amount", "status"])
+
+
+def _run_suite(context, df, batch_definition, suite, definition_name):
+    """
+    Run a single GE suite against df.
+    Returns a set of row_ids that failed.
+    """
+    failed_indices = set()
+
+    if len(suite.expectations) == 0:
+        return failed_indices
+
+    validation_definition = context.validation_definitions.add(
+        gx.ValidationDefinition(
+            name=definition_name,
+            data=batch_definition,
+            suite=suite,
+        )
+    )
+
+    result = validation_definition.run(batch_parameters={"dataframe": df})
+
+    for exp_result in result.results:
+        if not exp_result.success:
+            exp_type = exp_result.expectation_config.type
+            col = exp_result.expectation_config.kwargs.get("column")
+
+            if exp_type == "expect_column_values_to_not_be_null":
+                mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
+                failed_indices.update(df[mask]["row_id"].tolist())
+
+            elif exp_type == "expect_column_values_to_be_between":
+                min_val = exp_result.expectation_config.kwargs.get("min_value")
+                max_val = exp_result.expectation_config.kwargs.get("max_value")
+                col_numeric = pd.to_numeric(df[col], errors="coerce")
+                if min_val is not None:
+                    failed_indices.update(df[col_numeric < min_val]["row_id"].tolist())
+                if max_val is not None:
+                    failed_indices.update(df[col_numeric > max_val]["row_id"].tolist())
+
+            elif exp_type == "expect_column_values_to_be_in_set":
+                value_set = exp_result.expectation_config.kwargs.get("value_set", [])
+                mask = ~df[col].isin(value_set)
+                failed_indices.update(df[mask]["row_id"].tolist())
+
+            elif exp_type == "expect_column_values_to_match_regex":
+                regex = exp_result.expectation_config.kwargs.get("regex")
+                mask = ~df[col].astype(str).str.match(regex, na=False)
+                failed_indices.update(df[mask]["row_id"].tolist())
+
+            elif exp_type == "expect_column_values_to_be_unique":
+                mask = df[col].duplicated(keep=False) & df[col].notna()
+                failed_indices.update(df[mask]["row_id"].tolist())
+
+            elif exp_type == "expect_column_value_lengths_to_be_between":
+                min_val = exp_result.expectation_config.kwargs.get("min_value")
+                max_val = exp_result.expectation_config.kwargs.get("max_value")
+                lengths = df[col].fillna("").astype(str).str.len()
+                if min_val is not None:
+                    failed_indices.update(df[lengths < min_val]["row_id"].tolist())
+                if max_val is not None:
+                    failed_indices.update(df[lengths > max_val]["row_id"].tolist())
+
+    return failed_indices
+
+
+def run_validation(df):
+    """
+    Run both GE suites against the whole DataFrame.
+    Returns (results, error): results is a dict of row_id -> "pass", "warn" or "fail",
+    error is None or the message if rules.py could not be run.
+    Fail takes priority over warn.
+    """
+    if df.empty:
+        return {}, None
+
+    try:
+        if "rules" in sys.modules:
+            importlib.reload(sys.modules["rules"])
+        else:
+            import rules  # noqa: F401
+
+        import rules as rules_module
+
+        # Ephemeral context - nothing is persisted between validation cycles
+        context = gx.get_context(mode="ephemeral")
+
+        data_source = context.data_sources.add_pandas(name="bikezelo")
+        data_asset = data_source.add_dataframe_asset(name="orders")
+        batch_definition = data_asset.add_batch_definition_whole_dataframe("orders_batch")
+
+        fail_suite = context.suites.add(gx.ExpectationSuite(name="bikezelo_fail_suite"))
+        fail_suite = rules_module.get_failures(fail_suite)
+
+        warn_suite = context.suites.add(gx.ExpectationSuite(name="bikezelo_warn_suite"))
+        warn_suite = rules_module.get_warnings(warn_suite)
+
+        failed_ids = _run_suite(context, df, batch_definition, fail_suite, "bikezelo_fail_validation")
+        warned_ids = _run_suite(context, df, batch_definition, warn_suite, "bikezelo_warn_validation")
+
+        results = {}
+        for row_id in df["row_id"].dropna():
+            rid = int(row_id)
+            if rid in failed_ids:
+                results[rid] = "fail"
+            elif rid in warned_ids:
+                results[rid] = "warn"
+            else:
+                results[rid] = "pass"
+
+        return results, None
+
+    except Exception as e:
+        logger.error("Validation error: %s", e)
+        return {int(row_id): "pass" for row_id in df["row_id"].dropna()}, str(e)
+
+
+def calculate_forecast(df):
+    """Rows per minute and per hour, based on the time span of valid timestamps."""
+    timestamps = pd.to_datetime(df["timestamp"], format="%Y-%m-%dT%H:%M:%S", errors="coerce").dropna()
+    if len(timestamps) < 2:
+        return {"rows_per_min": 0, "forecast_per_hour": 0}
+
+    elapsed_minutes = (timestamps.max() - timestamps.min()).total_seconds() / 60
+    if elapsed_minutes < 0.1:
+        return {"rows_per_min": 0, "forecast_per_hour": 0}
+
+    rows_per_min = round(len(timestamps) / elapsed_minutes, 1)
+    forecast_per_hour = round(rows_per_min * 60)
+
+    return {"rows_per_min": rows_per_min, "forecast_per_hour": forecast_per_hour}
+
+
+@app.route("/")
+def index():
+    return render_template("index.html", sla_target=SLA_ERROR_RATE_THRESHOLD)
+
+
+@app.route("/data/rows")
+def get_rows():
+    """
+    Fast endpoint - returns new rows since last_row_id.
+    Called every 3 seconds. Rows return as white (unvalidated).
+    """
+    last_row_id = int(request.args.get("after", 0))
+
+    df = read_db()
+    if df.empty:
+        return jsonify({"rows": [], "max_row_id": 0})
+
+    new_rows = df[df["row_id"] > last_row_id]
+    new_rows = new_rows.tail(TICKER_ROWS)
+
+    max_row_id = int(df["row_id"].max())
+
+    rows = new_rows.to_dict(orient="records")
+    for row in rows:
+        row["row_id"] = int(row["row_id"])
+        row["status_class"] = "white"
+        # Replace NaN with None so it serialises as null in JSON.
+        # Check float explicitly - pd.isna() raises on non-scalar types.
+        for key, val in row.items():
+            if isinstance(val, float) and math.isnan(val):
+                row[key] = None
+
+    return jsonify({"rows": rows, "max_row_id": max_row_id})
+
+
+@app.route("/data/validate")
+def get_validation():
+    """
+    Slow endpoint - runs both GE suites against whole DB contents.
+    Called every 10 seconds.
+    """
+    df = read_db()
+
+    if df.empty:
+        return jsonify({
+            "results": {},
+            "stats": {"total": 0, "passed": 0, "warnings": 0, "errors": 0, "error_rate": 0.0},
+            "forecast": {"rows_per_min": 0, "forecast_per_hour": 0},
+        })
+
+    results, rules_error = run_validation(df)
+
+    total = len(results)
+    passed = sum(1 for v in results.values() if v == "pass")
+    warnings = sum(1 for v in results.values() if v == "warn")
+    errors = sum(1 for v in results.values() if v == "fail")
+    error_rate = round((errors / total) * 100, 1) if total > 0 else 0.0
+
+    forecast = calculate_forecast(df)
+
+    return jsonify({
+        "results": results,
+        "stats": {
+            "total": total,
+            "passed": passed,
+            "warnings": warnings,
+            "errors": errors,
+            "error_rate": error_rate,
+        },
+        "forecast": forecast,
+        "rules_error": rules_error,
+    })
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000)
