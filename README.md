@@ -13,6 +13,10 @@ pip install -r requirements.txt
 python setup_db.py
 ```
 
+## Configuration
+
+All settings live in `config.yaml` in the project root - copy `config.example.yaml` to get started. See the comments in that file for each option.
+
 `setup_db.py` creates an empty `data/orders.db`. Running it again deletes the database and starts fresh - all data is synthetic.
 
 ## Running
@@ -83,6 +87,6 @@ legacy-bikezelo/
 
 ---
 
-*Last reviewed: January 2026*
+*Last reviewed: March 2026 - Dave M*
 
 Training repository - see [SECURITY.md](SECURITY.md).

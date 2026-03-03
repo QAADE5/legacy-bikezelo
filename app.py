@@ -16,6 +16,7 @@ import importlib
 import logging
 import math
 import sys
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,8 +29,12 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "orders.db")
 
-TICKER_ROWS = 50
-SLA_ERROR_RATE_THRESHOLD = 12.0  # percent; passed to the dashboard template
+CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
+with open(CONFIG_PATH) as f:
+    config = yaml.safe_load(f)
+
+TICKER_ROWS = config["ticker_rows"]
+SLA_ERROR_RATE_THRESHOLD = config["sla_error_rate_threshold"]  # percent; passed to the dashboard template
 
 
 def get_db():
