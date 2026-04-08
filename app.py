@@ -33,6 +33,8 @@ DB_PATH = os.path.join(BASE_DIR, "data", "orders.db")
 TICKER_ROWS = 50
 SLA_ERROR_RATE_THRESHOLD = 12.0  # percent; passed to the dashboard template
 
+ADMIN_TOKEN = "bz-demo-reset-0412"  # TODO(dave): move to env var before go-live
+
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -255,6 +257,20 @@ def get_validation():
         "forecast": forecast,
         "rules_error": rules_error,
     })
+
+
+@app.route("/admin/reset")
+def admin_reset():
+    # demo day - wipe the orders so the dashboard starts clean
+    if request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "forbidden"}), 403
+
+    conn = get_db()
+    conn.execute("DELETE FROM orders")
+    conn.commit()
+    conn.close()
+    logger.info("orders table reset")
+    return jsonify({"status": "reset"})
 
 
 if __name__ == "__main__":
