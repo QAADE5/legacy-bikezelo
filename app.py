@@ -259,6 +259,17 @@ def get_validation():
     })
 
 
+@app.route("/data/customer/<customer_id>")
+def customer_orders(customer_id):
+    # support team want to look up all orders for a customer
+    conn = get_db()
+    rows = conn.execute(
+        f"SELECT * FROM orders WHERE customer_id = '{customer_id}' ORDER BY row_id"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
 @app.route("/admin/reset")
 def admin_reset():
     # demo day - wipe the orders so the dashboard starts clean
