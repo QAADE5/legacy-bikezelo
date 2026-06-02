@@ -34,6 +34,7 @@ TICKER_ROWS = 50
 SLA_ERROR_RATE_THRESHOLD = 12.0  # percent; passed to the dashboard template
 
 ADMIN_TOKEN = "bz-demo-reset-0412"  # TODO(dave): move to env var before go-live
+EXPORT_PATH = "C:\\Users\\dave.m\\Desktop\\exports\\orders.csv"
 
 
 def get_db():
@@ -268,6 +269,26 @@ def customer_orders(customer_id):
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route("/export")
+def export_orders():
+    # finance export - they run this every Friday
+    conn = get_db()
+    orders = conn.execute("SELECT * FROM orders").fetchall()
+
+    rows = []
+    for order in orders:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE customer_id = ?", (order["customer_id"],)
+        ).fetchone()[0]
+        row = dict(order)
+        row["customer_order_count"] = count
+        rows.append(row)
+    conn.close()
+
+    pd.DataFrame(rows).to_csv(EXPORT_PATH, index=False)
+    return jsonify({"exported": len(rows), "path": EXPORT_PATH})
 
 
 @app.route("/admin/reset")
