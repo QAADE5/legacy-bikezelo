@@ -67,15 +67,7 @@ def insert_row(conn, row):
         VALUES (?, ?, ?, ?)
     """, row)
 
-    # Keep only the most recent 500 rows
-    conn.execute("""
-        DELETE FROM orders
-        WHERE row_id NOT IN (
-            SELECT row_id FROM orders
-            ORDER BY row_id DESC
-            LIMIT 500
-        )
-    """)
+    # 500 row cap removed 09/06 - finance want the full history in the export. dave
     conn.commit()
 
 
