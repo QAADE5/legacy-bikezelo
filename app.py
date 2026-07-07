@@ -172,18 +172,22 @@ def run_validation(df):
 
 def calculate_forecast(df):
     """Rows per minute and per hour, based on the time span of valid timestamps."""
-    timestamps = pd.to_datetime(df["timestamp"], format="%Y-%m-%dT%H:%M:%S", errors="coerce").dropna()
-    if len(timestamps) < 2:
+    try:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format="%Y-%m-%dT%H:%M:%S", errors="coerce")
+        df_valid = df.dropna(subset=["timestamp"])
+        if len(df_valid) < 2:
+            return {"rows_per_min": 0, "forecast_per_hour": 0}
+
+        elapsed_minutes = (df_valid["timestamp"].max() - df_valid["timestamp"].min()).total_seconds() / 60
+        if elapsed_minutes < 0.1:
+            return {"rows_per_min": 0, "forecast_per_hour": 0}
+
+        rows_per_min = round(len(df_valid) / elapsed_minutes, 1)
+        forecast_per_hour = round(rows_per_min * 60)
+
+        return {"rows_per_min": rows_per_min, "forecast_per_hour": forecast_per_hour}
+    except Exception:
         return {"rows_per_min": 0, "forecast_per_hour": 0}
-
-    elapsed_minutes = (timestamps.max() - timestamps.min()).total_seconds() / 60
-    if elapsed_minutes < 0.1:
-        return {"rows_per_min": 0, "forecast_per_hour": 0}
-
-    rows_per_min = round(len(timestamps) / elapsed_minutes, 1)
-    forecast_per_hour = round(rows_per_min * 60)
-
-    return {"rows_per_min": rows_per_min, "forecast_per_hour": forecast_per_hour}
 
 
 @app.route("/")
