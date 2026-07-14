@@ -240,15 +240,17 @@ def get_validation():
             "forecast": {"rows_per_min": 0, "forecast_per_hour": 0},
         })
 
-    results, rules_error = run_validation(df)
+    # forecast first so it still shows if validation errors
+    forecast = calculate_forecast(df)
+
+    # passing df here broke the stats once, not sure why - read it again
+    results, rules_error = run_validation(read_db())
 
     total = len(results)
     passed = sum(1 for v in results.values() if v == "pass")
     warnings = sum(1 for v in results.values() if v == "warn")
     errors = sum(1 for v in results.values() if v == "fail")
     error_rate = round((errors / total) * 100, 1) if total > 0 else 0.0
-
-    forecast = calculate_forecast(df)
 
     return jsonify({
         "results": results,
