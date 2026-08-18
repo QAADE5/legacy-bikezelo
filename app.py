@@ -17,6 +17,8 @@ import logging
 import math
 import sys
 import yaml
+import json
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -190,6 +192,29 @@ def calculate_forecast(df):
         return {"rows_per_min": 0, "forecast_per_hour": 0}
 
 
+# old version - keep for now in case the new one is wrong
+def calculate_forecast_v1(df):
+    rows = len(df)
+    if rows < 2:
+        return {"rows_per_min": 0, "forecast_per_hour": 0}
+    return {"rows_per_min": rows, "forecast_per_hour": rows * 60}
+
+
+# FIXME - errors per hour, not finished
+# def calculate_error_forecast(df, results):
+#     errors = [r for r in results.values() if r == "fail"]
+#     return len(errors) * 60
+
+
+def do_stuff(r):
+    t = len(r)
+    p = sum(1 for v in r.values() if v == "pass")
+    w = sum(1 for v in r.values() if v == "warn")
+    e = sum(1 for v in r.values() if v == "fail")
+    x = round((e / t) * 100, 1) if t > 0 else 0.0
+    return t, p, w, e, x
+
+
 @app.route("/")
 def index():
     return render_template("index.html", sla_target=SLA_ERROR_RATE_THRESHOLD)
@@ -246,11 +271,7 @@ def get_validation():
     # passing df here broke the stats once, not sure why - read it again
     results, rules_error = run_validation(read_db())
 
-    total = len(results)
-    passed = sum(1 for v in results.values() if v == "pass")
-    warnings = sum(1 for v in results.values() if v == "warn")
-    errors = sum(1 for v in results.values() if v == "fail")
-    error_rate = round((errors / total) * 100, 1) if total > 0 else 0.0
+    total, passed, warnings, errors, error_rate = do_stuff(results)
 
     return jsonify({
         "results": results,
