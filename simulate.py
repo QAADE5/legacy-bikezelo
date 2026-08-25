@@ -16,8 +16,8 @@ from datetime import datetime
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "orders.db")
 
-STATUSES = ["NEW", "PAID", "SHIPPED", "REFUNDED"]
-BAD_STATUSES = ["PENDING", "CANCELLED", "UNKNOWN"]
+STATUSES = ["NEW", "PAID", "SHIPPED", "REFUNDED", "PENDING"]  # keep in sync with app.py and rules.py!!
+BAD_STATUSES = ["CANCELLED", "UNKNOWN"]
 INTERVAL = 2          # seconds between rows
 SPIKE_CHANCE = 0.02   # probability of an incident spike starting each cycle
 SPIKE_LENGTH = (4, 8) # min/max bad rows in a spike

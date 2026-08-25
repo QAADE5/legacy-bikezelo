@@ -36,6 +36,7 @@ TICKER_ROWS = 50
 SLA_ERROR_RATE_THRESHOLD = 12.0  # percent; passed to the dashboard template
 
 ADMIN_TOKEN = "bz-demo-reset-0412"  # TODO(dave): move to env var before go-live
+VALID_STATUSES = ["NEW", "PAID", "SHIPPED", "REFUNDED", "PENDING"]  # keep in sync with simulate.py and rules.py!!
 EXPORT_PATH = "C:\\Users\\dave.m\\Desktop\\exports\\orders.csv"
 
 
@@ -306,6 +307,8 @@ def export_orders():
 
     rows = []
     for order in orders:
+        if order["status"] not in VALID_STATUSES:
+            continue
         count = conn.execute(
             "SELECT COUNT(*) FROM orders WHERE customer_id = ?", (order["customer_id"],)
         ).fetchone()[0]
