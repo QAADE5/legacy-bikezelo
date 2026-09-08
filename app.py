@@ -19,6 +19,7 @@ import sys
 import yaml
 import json
 import time
+from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -318,6 +319,14 @@ def export_orders():
     conn.close()
 
     pd.DataFrame(rows).to_csv(EXPORT_PATH, index=False)
+
+    # audit line for finance - never block the export for this
+    try:
+        with open(os.path.join(BASE_DIR, "export.log"), "a") as f:
+            f.write(f"{datetime.now().isoformat()} exported {len(rows)} rows\n")
+    except OSError as e:
+        logger.warning("Could not write export audit line: %s", e)
+
     return jsonify({"exported": len(rows), "path": EXPORT_PATH})
 
 
