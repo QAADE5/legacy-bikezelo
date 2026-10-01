@@ -16,8 +16,8 @@ from datetime import datetime
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "orders.db")
 
-STATUSES = ["NEW", "PAID", "SHIPPED", "REFUNDED"]
-BAD_STATUSES = ["PENDING", "CANCELLED", "UNKNOWN"]
+STATUSES = ["NEW", "PAID", "SHIPPED", "REFUNDED", "PENDING"]  # keep in sync with app.py and rules.py!!
+BAD_STATUSES = ["CANCELLED", "UNKNOWN"]
 INTERVAL = 2          # seconds between rows
 SPIKE_CHANCE = 0.02   # probability of an incident spike starting each cycle
 SPIKE_LENGTH = (4, 8) # min/max bad rows in a spike
@@ -67,15 +67,7 @@ def insert_row(conn, row):
         VALUES (?, ?, ?, ?)
     """, row)
 
-    # Keep only the most recent 500 rows
-    conn.execute("""
-        DELETE FROM orders
-        WHERE row_id NOT IN (
-            SELECT row_id FROM orders
-            ORDER BY row_id DESC
-            LIMIT 500
-        )
-    """)
+    # 500 row cap removed 09/06 - finance want the full history in the export. dave
     conn.commit()
 
 

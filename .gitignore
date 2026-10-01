@@ -1,5 +1,6 @@
 # This project
 *.db
+config.yaml
 *.csv
 data/orders.db*
 data/orders.csv
